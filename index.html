@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Virtual Sparkler</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Roboto', sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* ============================================
+           LOADER OVERLAY
+           ============================================ */
+        #loader-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            transition: opacity 1s ease-out;
+        }
+
+        #loader-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .loader-wrapper {
+            position: relative;
+            width: 200px;
+            height: 200px;
+            margin-top: -40px; /* Shift up to account for text below */
+        }
+
+        .gunpowder-svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .gunpowder-track {
+            fill: none;
+            stroke: #888;
+            stroke-width: 12px;
+            stroke-linecap: round;
+            stroke-dasharray: 0.5 3;
+            filter: url(#grainy-noise);
+            opacity: 0.7;
+        }
+
+        .ember-container-rotator {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            animation: spin 4s linear infinite;
+        }
+
+        .ember-head {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 20px;
+            height: 20px;
+            background: radial-gradient(circle, #fff 30%, #ffaa00 70%, #ff4500 100%);
+            border-radius: 50%;
+            box-shadow:
+                0 0 10px 2px #fff,
+                0 0 20px 5px #ffaa00,
+                0 0 35px 10px #ff4500;
+            z-index: 10;
+        }
+
+        .spark {
+            position: absolute;
+            background: #fff;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 5;
+            filter: blur(0.5px);
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @keyframes fly-spark {
+            0% {
+                transform: translate(0, 0) scale(1);
+                opacity: 1;
+            }
+            100% {
+                transform: translate(var(--tx), var(--ty)) scale(0.2);
+                opacity: 0;
+            }
+        }
+
+        #loader-text {
+            margin-top: 40px;
+            color: #fff;
+            font-size: 1.1rem;
+            font-weight: 400;
+            text-align: center;
+            opacity: 0.9;
+        }
+
+        /* ============================================
+           TOP OVERLAY LINK
+           ============================================ */
+        #top-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 16px 20px;
+            text-align: center;
+            z-index: 100;
+            pointer-events: none;
+        }
+
+        #top-overlay a {
+            color: #fff;
+            font-size: 0.9rem;
+            font-weight: 400;
+            text-decoration: none;
+            text-shadow:
+                0 1px 3px rgba(0,0,0,0.9),
+                0 2px 8px rgba(0,0,0,0.7);
+            pointer-events: auto;
+            transition: opacity 0.2s;
+        }
+
+        #top-overlay a:hover {
+            opacity: 0.8;
+            text-decoration: underline;
+        }
+
+        /* ============================================
+           BOTTOM UX HINT
+           ============================================ */
+        #ux-hint {
+            position: fixed;
+            bottom: 30px;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            z-index: 100;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        #ux-hint span {
+            color: #fff;
+            font-size: 1.1rem;
+            font-weight: 400;
+            text-shadow:
+                0 1px 3px rgba(0,0,0,0.9),
+                0 2px 8px rgba(0,0,0,0.7);
+        }
+
+        #ux-hint.hidden {
+            opacity: 0;
+        }
+    </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <!-- Loader Overlay -->
+    <div id="loader-overlay">
+        <div class="loader-wrapper">
+            <svg style="position: absolute; width: 0; height: 0; overflow: hidden;">
+                <defs>
+                    <filter id="grainy-noise" x="-20%" y="-20%" width="140%" height="140%">
+                        <feTurbulence type="fractalNoise" baseFrequency="0.3" numOctaves="5" result="noise" />
+                        <feDisplacementMap in="SourceGraphic" in2="noise" scale="26" xChannelSelector="R" yChannelSelector="G" />
+                    </filter>
+                </defs>
+            </svg>
+
+            <svg class="gunpowder-svg" viewBox="0 0 300 300">
+                <circle class="gunpowder-track" cx="150" cy="150" r="120" />
+            </svg>
+
+            <div class="ember-container-rotator">
+                <div class="ember-head" id="emberHead"></div>
+            </div>
+        </div>
+        <div id="loader-text">Lighting the sparkler...</div>
+    </div>
+
+    <!-- Top Overlay Link -->
+    <div id="top-overlay">
+        <a href="https://example.com/post" target="_blank">Software is ephemeral now...Read the post about how I created this WebAI toy with Gemini and a few smart prompts.</a>
+    </div>
+
+    <!-- Bottom UX Hint -->
+    <div id="ux-hint">
+        <span>Point your finger at the camera</span>
+    </div>
+
+    <!-- Hidden Video Element -->
+    <video id="video" playsinline style="display:none"></video>
+
+    <script>
+        // ============================================
+        // LOADER SPARK ANIMATION
+        // ============================================
+        const emberHead = document.getElementById('emberHead');
+        let lastSparkTime = 0;
+        const sparkInterval = 40;
+        window.loaderAnimationRunning = true;
+
+        function createSparks() {
+            const count = Math.floor(Math.random() * 3) + 1;
+            for (let i = 0; i < count; i++) {
+                const spark = document.createElement('div');
+                spark.classList.add('spark');
+
+                const size = Math.random() * 3 + 2;
+                spark.style.width = `${size}px`;
+                spark.style.height = `${size}px`;
+
+                const colors = ['#fff', '#ffcc00', '#ff8800', '#ff4500'];
+                spark.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+
+                emberHead.appendChild(spark);
+
+                const angleVariance = (Math.random() - 0.5) * 90;
+                const distance = Math.random() * 60 + 20;
+
+                const tx = Math.cos(angleVariance * Math.PI / 180) * -distance;
+                const ty = Math.sin(angleVariance * Math.PI / 180) * distance;
+
+                spark.style.setProperty('--tx', `${tx}px`);
+                spark.style.setProperty('--ty', `${ty}px`);
+
+                const duration = Math.random() * 0.5 + 0.3;
+                spark.style.animation = `fly-spark ${duration}s ease-out forwards`;
+
+                setTimeout(() => spark.remove(), duration * 1000);
+            }
+        }
+
+        function loaderLoop(timestamp) {
+            if (!window.loaderAnimationRunning) return;
+
+            if (timestamp - lastSparkTime >= sparkInterval) {
+                createSparks();
+                lastSparkTime = timestamp;
+            }
+
+            requestAnimationFrame(loaderLoop);
+        }
+
+        requestAnimationFrame(loaderLoop);
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { SVGLoader } from 'three/addons/loaders/SVGLoader.js';
+        import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+        // --- Configuration ---
+        const SETTINGS = {
+            particleCount: 3000,
+            sparkEmission: 20,
+            trailEmission: 40,
+            gravity: -0.25,
+            drag: 0.94,
+            lifeSpeed: 0.02,
+            bloomThreshold: 0.1,
+            bloomStrength: 0.15,
+            bloomRadius: 0.05
+        };
+
+        // --- Globals ---
+        let scene, camera, renderer, composer;
+        let video, videoTexture, videoPlane;
+        let sparklerSystem, debugMesh, svgMesh;
+        let bloomPass;
+        const targetPos = new THREE.Vector3();
+        const currentPos = new THREE.Vector3();
+        let isHandDetected = false;
+
+        // --- DEPTH LAYER STRATEGY ---
+        const CAMERA_Z = 15;
+        const SPARKLER_Z = 0;
+        const GLASS_Z = 5;
+        const VIDEO_Z = 0;
+
+        // --- UI Elements ---
+        const loaderOverlay = document.getElementById('loader-overlay');
+        const loaderText = document.getElementById('loader-text');
+        const uxHint = document.getElementById('ux-hint');
+
+        function setLoaderText(text) {
+            loaderText.textContent = text;
+        }
+
+        function hideLoader() {
+            loaderOverlay.classList.add('hidden');
+            // Stop spark generation after fade
+            setTimeout(() => {
+                window.loaderAnimationRunning = false;
+            }, 1000);
+        }
+
+        function updateUxHint(visible) {
+            if (visible) {
+                uxHint.classList.remove('hidden');
+            } else {
+                uxHint.classList.add('hidden');
+            }
+        }
+
+        // --- YOUR SVG DATA ---
+        const svgString = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 20010904//EN" "http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd">
+<svg xmlns="http://www.w3.org/2000/svg" width="3.41333in" height="1.86333in" viewBox="0 0 1024 559">
+  <path id="Selection" fill="none" stroke="black" stroke-width="1" d="M 174.00,130.00 C 164.27,132.52 156.75,122.97 156.10,114.00 154.94,98.27 169.51,82.66 181.00,73.67 197.63,60.64 227.68,48.25 249.00,48.00 257.26,47.91 263.13,47.80 271.00,50.92 288.99,58.07 300.99,75.56 295.71,95.00 290.94,112.56 273.58,121.91 268.00,129.00 277.94,130.57 287.05,137.75 291.00,147.00 300.13,144.33 306.33,142.03 316.00,142.00 313.85,154.88 294.80,148.13 296.06,160.00 296.44,163.64 297.15,164.82 296.91,169.00 295.55,192.30 277.50,211.71 258.00,222.49 252.26,225.66 248.24,226.30 242.00,227.42 232.34,229.17 224.09,229.72 216.00,222.79 212.98,220.20 209.94,217.05 209.23,213.00 207.97,205.89 212.13,198.52 216.16,193.00 225.97,179.54 239.81,171.42 254.00,163.42 254.00,163.42 270.98,155.18 270.98,155.18 273.50,153.78 275.74,152.23 275.21,148.98 274.81,146.60 272.68,143.93 270.90,142.23 262.24,134.94 251.37,138.53 242.00,142.23 239.07,143.17 236.20,144.74 233.00,144.85 228.45,145.02 225.58,142.35 222.00,140.00 222.00,140.00 212.34,169.00 212.34,169.00 212.34,169.00 207.63,187.00 207.63,187.00 206.67,190.92 205.88,203.62 204.15,205.39 200.97,208.62 191.89,203.85 189.19,201.47 187.43,199.93 186.14,198.15 184.99,196.00 183.50,191.91 184.22,187.25 184.99,182.99 185.91,173.77 188.80,162.96 191.42,154.00 196.73,135.86 212.61,96.10 222.70,81.02 224.11,78.91 225.64,76.71 228.09,75.75 233.81,73.53 246.46,79.23 246.55,86.00 246.59,88.98 243.17,94.11 241.78,97.00 241.78,97.00 229.00,125.00 229.00,125.00 239.75,119.93 246.80,116.72 256.00,108.71 256.00,108.71 262.00,103.00 262.00,103.00 270.21,94.82 288.61,73.73 271.98,64.41 269.78,63.18 267.46,62.57 265.00,62.09 261.72,61.46 258.35,60.90 255.00,61.09 231.29,62.44 202.65,76.38 186.01,93.01 180.23,98.80 169.55,112.27 170.47,121.00 170.69,123.15 173.05,127.58 174.00,130.00 Z M 424.00,75.47 C 426.56,75.12 428.39,74.82 431.00,75.47 436.00,76.49 444.22,81.93 442.36,88.00 441.33,91.37 435.08,96.69 432.53,100.00 430.36,102.82 428.15,108.21 424.90,109.36 420.97,110.75 412.01,107.37 411.23,99.00 410.73,93.69 414.33,82.16 418.27,78.56 420.15,76.83 421.69,76.36 424.00,75.47 Z M 343.00,140.00 C 337.45,141.58 333.34,140.26 330.38,142.60 326.78,145.43 321.69,157.61 317.70,160.38 314.11,162.88 310.37,160.20 311.45,156.00 312.29,152.69 319.38,143.28 319.41,140.00 319.44,136.24 315.21,134.28 313.15,129.00 310.09,121.18 313.20,110.75 317.55,104.00 320.07,100.08 323.68,95.76 328.00,93.82 335.36,90.52 344.78,93.70 346.60,102.00 348.13,108.94 341.77,121.56 339.00,128.00 347.09,128.89 351.24,125.80 356.00,126.89 362.40,128.35 371.77,135.54 370.43,143.00 369.82,146.38 365.95,152.52 364.26,156.00 359.23,166.31 352.22,182.54 355.00,194.00 367.21,186.24 382.38,165.33 388.13,152.00 391.02,145.29 397.18,126.93 401.63,122.31 407.06,116.68 421.99,123.05 423.38,130.01 423.97,132.95 420.03,140.90 418.72,144.00 413.96,155.20 411.45,162.30 408.23,174.00 407.23,177.21 403.93,186.87 408.23,188.75 410.27,189.59 412.27,188.12 413.70,186.94 416.11,184.95 422.08,177.68 424.10,175.00 427.99,169.85 437.35,155.70 439.46,150.00 439.46,150.00 447.86,128.00 447.86,128.00 448.78,125.92 451.37,119.85 452.70,118.43 457.51,113.25 475.76,118.30 473.38,129.00 471.56,137.17 464.55,147.98 465.00,156.00 467.74,149.87 472.81,142.38 476.90,137.00 485.72,125.40 498.24,112.72 511.91,126.11 514.10,128.26 516.15,130.91 516.71,134.00 517.52,138.47 514.65,144.84 513.00,149.00 513.00,149.00 505.02,172.00 505.02,172.00 504.02,175.22 501.90,181.83 502.17,184.99 502.37,187.34 503.26,190.13 506.19,189.01 510.93,187.19 518.24,177.21 521.37,173.00 532.40,158.14 536.55,138.91 551.04,126.62 556.61,121.89 560.91,119.84 568.00,118.40 579.20,116.13 585.03,118.88 592.00,128.00 593.07,124.65 594.54,121.00 598.09,119.60 603.63,117.41 616.36,122.37 616.56,129.01 616.64,131.51 610.21,145.38 608.81,149.00 608.81,149.00 595.00,190.00 595.00,190.00 603.42,184.04 618.54,167.61 624.49,159.00 626.29,156.40 630.72,148.30 634.89,150.17 638.05,151.75 636.29,156.62 634.89,159.00 631.98,165.23 624.55,174.77 619.83,180.00 614.62,185.77 608.05,192.13 602.00,197.00 599.04,199.38 591.79,204.44 590.00,207.10 590.00,207.10 582.69,225.00 582.69,225.00 574.66,243.14 564.51,265.40 548.00,277.21 533.32,287.72 507.29,283.80 508.04,263.00 508.66,245.84 530.51,227.83 544.00,219.46 544.00,219.46 560.49,208.61 560.49,208.61 562.59,206.30 564.90,199.18 566.00,196.00 562.63,199.36 558.62,203.90 554.00,205.35 542.17,209.05 527.72,198.64 527.00,184.00 520.94,189.60 518.15,196.79 510.99,201.96 508.16,203.99 504.50,206.16 501.00,206.63 489.56,208.18 479.26,198.94 477.89,188.00 475.80,171.24 485.64,151.37 491.00,136.00 476.68,151.01 468.71,166.94 459.30,185.00 456.87,189.65 455.02,193.92 453.64,199.00 453.02,201.27 452.37,205.55 450.44,206.98 444.47,211.39 431.87,203.23 429.56,194.00 429.56,194.00 429.00,184.00 429.00,184.00 425.73,192.40 415.19,204.72 406.00,206.61 403.03,207.22 399.85,206.67 397.00,205.78 393.79,204.78 390.69,203.23 388.33,200.79 382.68,194.96 383.57,188.05 381.00,181.00 377.71,189.47 365.78,203.44 357.00,206.30 348.90,208.95 337.26,204.12 332.92,196.99 330.73,193.38 330.06,189.14 330.00,185.00 329.77,166.71 337.11,156.08 343.00,140.00 Z M 335.00,110.00 C 335.00,110.00 333.00,110.00 333.00,110.00 330.32,114.73 327.85,118.53 330.00,124.00 330.00,124.00 335.00,110.00 335.00,110.00 Z M 746.00,164.00 C 753.24,160.86 761.81,155.24 765.44,148.00 765.44,148.00 773.99,126.00 773.99,126.00 775.25,122.94 776.90,117.84 779.53,115.83 784.39,112.10 801.18,117.00 799.60,127.00 798.42,134.55 789.61,149.07 790.00,157.00 792.52,148.38 804.39,132.24 811.00,126.09 814.38,122.95 819.30,119.12 824.00,118.42 831.11,117.36 842.65,125.86 843.43,133.00 843.74,135.90 841.33,142.02 840.33,145.00 840.33,145.00 831.02,172.00 831.02,172.00 830.05,175.17 827.42,183.84 829.83,186.55 832.71,189.81 838.01,183.98 839.91,181.99 847.78,173.72 853.51,163.65 859.45,154.00 860.83,151.76 863.44,147.10 866.72,149.07 867.82,149.73 868.38,150.83 868.58,152.06 869.15,155.46 864.43,163.80 862.69,167.00 856.78,177.90 843.50,199.70 832.00,204.22 819.35,209.19 805.00,197.93 804.10,185.00 803.85,181.50 804.48,179.32 804.84,176.00 806.78,157.87 811.34,151.21 817.00,135.00 803.35,148.96 794.68,164.61 786.26,182.00 786.26,182.00 780.04,197.00 780.04,197.00 779.35,199.27 778.67,203.80 777.15,205.40 772.13,210.69 760.57,202.59 757.56,197.96 752.36,189.96 757.35,177.77 759.00,169.00 755.64,170.45 743.26,175.38 741.39,177.28 739.50,179.19 736.50,185.24 734.77,188.00 730.96,194.07 726.16,199.74 720.00,203.53 706.40,211.90 685.18,206.88 677.38,192.83 674.91,188.40 674.06,183.00 674.00,178.00 673.85,164.86 677.55,149.81 685.30,139.00 688.22,134.92 690.58,133.16 693.62,129.72 697.89,124.87 699.80,118.84 707.00,116.01 712.15,113.99 717.88,116.85 723.00,117.68 728.55,118.58 732.44,116.96 738.00,120.23 752.66,128.86 750.00,150.18 746.00,164.00 Z M 729.04,128.66 C 719.66,132.35 718.10,145.38 720.24,154.00 721.18,157.79 724.81,165.29 729.78,164.18 732.81,163.49 734.19,157.62 734.69,155.00 736.09,147.71 740.17,129.48 729.04,128.66 Z M 580.00,132.43 C 566.23,136.63 556.22,160.16 552.00,173.00 550.84,176.54 549.08,183.34 549.15,186.98 549.19,189.45 550.00,191.97 553.06,191.26 556.41,190.47 561.05,184.66 563.24,182.00 572.00,171.40 577.18,160.13 583.25,148.00 586.09,142.30 591.44,132.07 580.00,132.43 Z M 705.00,159.00 C 699.76,164.50 697.69,177.51 698.04,185.00 698.20,188.42 698.94,192.95 702.22,194.81 705.27,196.54 709.31,194.91 712.00,193.18 717.74,189.50 724.63,180.72 726.00,174.00 715.30,172.32 711.00,167.44 705.00,159.00 Z M 274.00,164.00 C 261.04,167.70 238.10,184.00 229.17,194.00 226.64,196.83 218.43,206.44 221.77,210.40 225.53,214.85 237.54,207.63 241.00,205.33 253.99,196.73 271.14,179.83 274.00,164.00 Z M 760.00,361.00 C 763.67,357.50 767.60,353.91 772.00,351.35 799.14,335.54 840.00,342.18 861.91,364.09 876.13,378.31 882.77,399.23 883.00,419.00 883.24,440.12 876.44,462.30 861.83,477.96 835.81,505.84 782.95,509.95 752.00,488.09 727.40,470.71 717.07,443.96 713.29,415.00 713.29,415.00 711.91,396.00 711.91,396.00 711.91,396.00 711.01,387.00 711.01,387.00 711.01,387.00 712.00,367.00 712.00,367.00 712.08,360.81 713.99,347.31 715.20,341.00 721.10,310.15 733.43,283.50 763.00,268.81 770.53,265.07 784.60,261.10 793.00,261.00 793.00,261.00 806.00,260.34 806.00,260.34 812.23,260.34 825.93,262.62 832.00,264.44 857.36,272.02 875.76,293.40 878.00,320.00 878.00,320.00 838.00,321.00 838.00,321.00 835.96,321.00 832.37,321.26 830.70,320.01 828.14,318.09 828.22,312.66 823.47,307.29 817.31,300.33 809.14,297.37 800.00,297.75 792.13,298.07 788.39,299.45 782.00,304.16 764.37,317.17 762.62,341.14 760.00,361.00 Z M 149.00,343.96 C 149.27,313.78 159.32,284.22 188.00,269.97 204.88,261.58 219.63,260.79 238.00,261.00 267.94,261.35 297.87,278.92 307.64,308.00 309.58,313.75 310.93,320.93 311.00,327.00 311.08,334.52 311.21,339.54 309.50,347.00 301.80,380.62 275.57,398.76 249.00,417.58 235.38,427.21 213.34,441.04 206.00,456.00 206.00,456.00 311.00,456.00 311.00,456.00 311.00,456.00 311.00,495.00 311.00,495.00 311.00,495.00 282.00,496.26 282.00,496.26 282.00,496.26 240.00,496.26 240.00,496.26 240.00,496.26 234.00,496.26 234.00,496.26 234.00,496.26 224.00,496.26 224.00,496.26 224.00,496.26 169.00,496.26 169.00,496.26 169.00,496.26 145.00,497.00 145.00,497.00 144.40,486.77 145.37,481.88 147.58,472.00 155.40,437.03 179.75,416.67 207.00,395.88 221.22,385.04 243.28,370.39 253.23,356.00 257.56,349.74 262.40,337.67 261.82,330.00 260.50,312.54 248.99,299.43 231.00,299.01 213.10,298.60 202.44,307.94 197.88,325.00 196.29,330.99 196.14,331.86 196.00,338.00 195.95,339.82 196.11,342.72 194.40,343.96 192.98,344.86 187.10,344.03 185.00,343.96 185.00,343.96 149.00,343.96 149.00,343.96 Z M 408.00,261.21 C 408.00,261.21 423.00,261.21 423.00,261.21 430.76,261.01 438.57,262.51 446.00,264.72 452.64,266.69 459.15,269.34 465.00,273.09 499.97,295.52 503.06,349.65 503.00,387.00 502.97,405.65 497.87,440.48 489.63,457.00 475.94,484.44 457.17,497.15 427.00,500.17 422.43,500.62 422.13,501.06 417.00,500.95 406.80,500.73 396.66,499.29 387.00,496.00 345.12,481.73 336.57,437.65 333.91,399.00 333.91,399.00 333.00,389.00 333.00,389.00 333.00,389.00 334.83,356.00 334.83,356.00 337.27,330.80 342.72,302.37 360.43,283.09 373.47,268.88 389.77,264.41 408.00,261.21 Z M 573.00,344.00 C 573.00,344.00 541.00,344.00 541.00,344.00 538.34,344.00 530.49,344.48 528.60,342.98 526.56,341.36 526.96,336.41 527.01,334.00 527.13,329.25 528.27,324.64 529.20,320.00 533.67,297.70 544.11,280.48 565.00,269.97 593.17,255.79 635.17,258.01 661.00,276.21 664.37,278.58 670.73,283.97 673.40,287.09 693.72,311.64 692.90,352.17 673.40,377.00 658.14,396.62 637.92,409.20 618.00,423.58 606.09,432.17 591.83,442.46 584.00,455.05 584.00,455.05 601.00,455.05 601.00,455.05 601.00,455.05 613.00,456.00 613.00,456.00 613.00,456.00 689.00,456.00 689.00,456.00 689.00,456.00 689.00,470.00 689.00,470.00 689.00,470.00 689.84,485.28 689.84,485.28 689.90,488.03 690.74,494.13 688.40,495.98 686.30,497.64 673.31,497.03 670.00,497.00 670.00,497.00 627.00,496.00 627.00,496.00 627.00,496.00 532.00,496.00 532.00,496.00 530.02,496.00 526.18,496.23 524.38,494.98 522.05,492.95 523.81,484.16 524.38,481.00 525.61,468.05 530.66,454.22 537.15,443.00 552.57,416.38 586.22,395.85 610.00,376.80 625.49,364.39 640.64,349.59 638.91,328.00 637.36,308.68 622.32,298.57 604.00,299.01 598.86,299.14 593.25,300.67 589.00,303.65 575.88,312.82 573.33,329.08 573.00,344.00 Z M 415.00,298.30 C 395.02,302.07 390.55,314.98 386.83,333.00 382.03,358.27 381.23,403.94 386.83,429.00 390.64,447.38 400.07,464.86 422.00,461.70 439.90,459.13 445.76,444.67 449.35,429.00 450.82,422.59 452.92,407.42 453.00,401.00 453.00,401.00 453.86,376.00 453.86,376.00 453.86,376.00 453.00,361.00 453.00,361.00 452.88,350.51 451.65,338.18 449.11,328.00 444.62,310.04 435.69,296.31 415.00,298.30 Z M 794.00,380.29 C 784.58,381.71 776.73,384.32 770.39,392.04 754.56,411.32 759.33,462.56 798.00,463.00 803.47,463.06 807.92,463.04 813.00,460.60 836.33,449.39 839.42,408.00 822.67,390.18 815.68,382.74 803.96,379.57 794.00,380.29 Z" />
+</svg>`;
+
+        async function init() {
+            // 1. Setup Scene
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = CAMERA_Z;
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            document.body.appendChild(renderer.domElement);
+
+            const pmremGenerator = new THREE.PMREMGenerator(renderer);
+            scene.environment = pmremGenerator.fromScene(new RoomEnvironment()).texture;
+
+            // 2. Setup Video
+            setLoaderText('Starting the camera...');
+
+            video = document.getElementById('video');
+            try {
+                setLoaderText('Please allow access to your camera...');
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }
+                });
+                video.srcObject = stream;
+                await new Promise(r => { video.onloadedmetadata = () => { video.play(); r(); } });
+            } catch (err) {
+                setLoaderText('Camera access denied. Please refresh and allow camera access.');
+                return;
+            }
+
+            // 3. Setup Video Plane (BACKGROUND)
+            videoTexture = new THREE.VideoTexture(video);
+            videoTexture.colorSpace = THREE.SRGBColorSpace;
+
+            const planeGeo = new THREE.PlaneGeometry(1, 1);
+            const planeMat = new THREE.MeshBasicMaterial({ map: videoTexture, color: 0xFFFFFF });
+            videoPlane = new THREE.Mesh(planeGeo, planeMat);
+            videoPlane.position.z = VIDEO_Z;
+            videoPlane.scale.x = -1;
+            scene.add(videoPlane);
+
+            resizeVideoPlane();
+
+            // 4. Debug Dot (Hidden)
+            const debugGeo = new THREE.SphereGeometry(0.5, 16, 16);
+            const debugMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            debugMesh = new THREE.Mesh(debugGeo, debugMat);
+            debugMesh.position.z = VIDEO_Z;
+            debugMesh.visible = false;
+            scene.add(debugMesh);
+
+            // 5. Setup SVG Glass (MIDDLE)
+            loadSVG();
+
+            // 6. Sparkler System (FRONT)
+            sparklerSystem = new SparklerSystem();
+            sparklerSystem.mesh.position.z = SPARKLER_Z;
+            scene.add(sparklerSystem.mesh);
+
+            // 7. Post Processing
+            const renderScene = new RenderPass(scene, camera);
+
+            bloomPass = new UnrealBloomPass(
+                new THREE.Vector2(window.innerWidth, window.innerHeight),
+                SETTINGS.bloomStrength, SETTINGS.bloomRadius, SETTINGS.bloomThreshold
+            );
+            bloomPass.strength = 0;
+
+            composer = new EffectComposer(renderer);
+            composer.addPass(renderScene);
+            composer.addPass(bloomPass);
+
+            // 8. MediaPipe
+            setLoaderText('Now watch the \'virtual sparkler\' follow your fingertip...');
+
+            const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}` });
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+            hands.onResults(onHandResults);
+
+            let handTrackingStarted = false;
+
+            async function aiLoop() {
+                if (video.readyState >= 2) {
+                    await hands.send({ image: video });
+
+                    // Hide loader after first successful hand processing
+                    if (!handTrackingStarted) {
+                        handTrackingStarted = true;
+                        hideLoader();
+                    }
+                }
+                window.requestAnimationFrame(aiLoop);
+            }
+            aiLoop();
+
+            window.addEventListener('resize', onWindowResize);
+            animate();
+        }
+
+        function loadSVG() {
+            const loader = new SVGLoader();
+            const data = loader.parse(svgString);
+            const paths = data.paths;
+            const group = new THREE.Group();
+
+            const glassMaterial = new THREE.MeshPhysicalMaterial({
+                color: 0xc0c4ff,
+                transmission: 1,
+                opacity: 0.75,
+                metalness: 0,
+                roughness: 0.0,
+                ior: 1.5,
+                thickness: 0.25,
+                specularIntensity: 1,
+                envMapIntensity: 1.5,
+                clearcoat: 1,
+                transparent: true
+            });
+
+            for (let i = 0; i < paths.length; i++) {
+                const path = paths[i];
+                const shapes = SVGLoader.createShapes(path);
+
+                for (let j = 0; j < shapes.length; j++) {
+                    const shape = shapes[j];
+                    const geometry = new THREE.ExtrudeGeometry(shape, {
+                        depth: 10,
+                        bevelEnabled: true,
+                        bevelThickness: 1,
+                        bevelSize: 1,
+                        bevelSegments: 5
+                    });
+
+                    const mesh = new THREE.Mesh(geometry, glassMaterial);
+                    group.add(mesh);
+                }
+            }
+
+            const box = new THREE.Box3().setFromObject(group);
+            const center = box.getCenter(new THREE.Vector3());
+
+            group.position.x = -center.x;
+            group.position.y = -center.y;
+            group.position.z = -center.z;
+
+            svgMesh = new THREE.Group();
+            svgMesh.add(group);
+            svgMesh.scale.y = -1;
+            svgMesh.scale.multiplyScalar(0.025);
+            svgMesh.position.z = GLASS_Z;
+            scene.add(svgMesh);
+        }
+
+        class SparklerSystem {
+            constructor() {
+                this.count = SETTINGS.particleCount;
+                this.geometry = new THREE.BufferGeometry();
+                this.positions = new Float32Array(this.count * 3);
+                this.velocities = new Float32Array(this.count * 3);
+                this.colors = new Float32Array(this.count * 3);
+                this.life = new Float32Array(this.count);
+                this.sizes = new Float32Array(this.count);
+                this.types = new Float32Array(this.count);
+
+                for (let i = 0; i < this.count; i++) this.positions[i * 3] = 9999;
+
+                this.geometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3));
+                this.geometry.setAttribute('color', new THREE.BufferAttribute(this.colors, 3));
+                this.geometry.setAttribute('size', new THREE.BufferAttribute(this.sizes, 1));
+
+                const sprite = this.createTexture();
+
+                this.material = new THREE.PointsMaterial({
+                    size: 1.0,
+                    map: sprite,
+                    vertexColors: true,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false,
+                    depthTest: false,
+                    transparent: true,
+                    opacity: 0.25
+                });
+
+                this.mesh = new THREE.Points(this.geometry, this.material);
+                this.mesh.frustumCulled = false;
+                this.mesh.renderOrder = 999;
+                this.nextIdx = 0;
+            }
+
+            createTexture() {
+                const canvas = document.createElement('canvas');
+                canvas.width = 32; canvas.height = 32;
+                const ctx = canvas.getContext('2d');
+                const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+                grad.addColorStop(0, 'rgba(255,255,255,1)');
+                grad.addColorStop(0.3, 'rgba(255,240,150,0.8)');
+                grad.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, 32, 32);
+                const tex = new THREE.Texture(canvas);
+                tex.needsUpdate = true;
+                return tex;
+            }
+
+            emit(pos) {
+                const zPos = pos.z;
+
+                for (let k = 0; k < SETTINGS.sparkEmission; k++) {
+                    const i = this.nextIdx;
+                    this.types[i] = 0;
+                    this.positions[i * 3] = pos.x; this.positions[i * 3 + 1] = pos.y; this.positions[i * 3 + 2] = zPos;
+                    const speed = (Math.random() * 0.4) + 0.1;
+                    const theta = Math.random() * Math.PI * 2;
+                    const phi = Math.acos((Math.random() * 2) - 1);
+                    this.velocities[i * 3] = speed * Math.sin(phi) * Math.cos(theta);
+                    this.velocities[i * 3 + 1] = speed * Math.sin(phi) * Math.sin(theta);
+                    this.velocities[i * 3 + 2] = speed * Math.cos(phi);
+                    this.life[i] = 1.0;
+                    this.sizes[i] = Math.random() * 0.01;
+                    this.colors[i * 3] = 1.0; this.colors[i * 3 + 1] = 0.9; this.colors[i * 3 + 2] = 0.7;
+                    this.nextIdx = (this.nextIdx + 1) % this.count;
+                }
+                for (let k = 0; k < SETTINGS.trailEmission; k++) {
+                    const i = this.nextIdx;
+                    this.types[i] = 1;
+                    this.positions[i * 3] = pos.x; this.positions[i * 3 + 1] = pos.y; this.positions[i * 3 + 2] = zPos;
+                    this.velocities[i * 3] = (Math.random() - 0.5) * 0.02;
+                    this.velocities[i * 3 + 1] = (Math.random() - 0.5) * 0.02;
+                    this.velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.02;
+                    this.life[i] = 0.8;
+                    this.sizes[i] = 0.1;
+                    this.colors[i * 3] = 1.5; this.colors[i * 3 + 1] = 1.2; this.colors[i * 3 + 2] = 1.0;
+                    this.nextIdx = (this.nextIdx + 1) % this.count;
+                }
+            }
+
+            update() {
+                for (let i = 0; i < this.count; i++) {
+                    if (this.life[i] > 0) {
+                        this.positions[i * 3] += this.velocities[i * 3];
+                        this.positions[i * 3 + 1] += this.velocities[i * 3 + 1];
+                        this.positions[i * 3 + 2] += this.velocities[i * 3 + 2];
+                        if (this.types[i] === 0) {
+                            this.velocities[i * 3 + 1] += SETTINGS.gravity * 0.1;
+                            this.velocities[i * 3] *= SETTINGS.drag; this.velocities[i * 3 + 1] *= SETTINGS.drag; this.velocities[i * 3 + 2] *= SETTINGS.drag;
+                            this.life[i] -= SETTINGS.lifeSpeed;
+                            const life = this.life[i];
+                            if (life < 0.5) { this.colors[i * 3 + 1] = life * 2; this.colors[i * 3 + 2] = life * 0.5; }
+                        } else {
+                            this.life[i] -= SETTINGS.lifeSpeed * 1.5;
+                            this.colors[i * 3 + 1] = this.life[i] + 0.2;
+                            this.colors[i * 3 + 2] = this.life[i] * 0.8;
+                        }
+                    } else {
+                        this.positions[i * 3] = 9999;
+                    }
+                }
+                this.geometry.attributes.position.needsUpdate = true;
+                this.geometry.attributes.color.needsUpdate = true;
+            }
+        }
+
+        function onHandResults(results) {
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                if (!isHandDetected) {
+                    isHandDetected = true;
+                    updateUxHint(false);
+                }
+
+                const hand = results.multiHandLandmarks[0];
+                const indexTip = hand[8];
+
+                let ndcX = (indexTip.x * 2) - 1;
+                let ndcY = -(indexTip.y * 2) + 1;
+                ndcX = -ndcX;
+
+                const distance = camera.position.z - videoPlane.position.z;
+                const vFOV = THREE.MathUtils.degToRad(camera.fov);
+                const height = 2 * Math.tan(vFOV / 2) * distance;
+                const width = height * camera.aspect;
+
+                const videoAspect = video.videoWidth / video.videoHeight || 1.33;
+                const screenAspect = width / height;
+                let scaleX, scaleY;
+                if (screenAspect > videoAspect) {
+                    scaleX = width; scaleY = width / videoAspect;
+                } else {
+                    scaleX = height * videoAspect; scaleY = height;
+                }
+
+                targetPos.set(
+                    ndcX * (scaleX / 2),
+                    ndcY * (scaleY / 2),
+                    VIDEO_Z
+                );
+
+                targetPos.z = SPARKLER_Z;
+                debugMesh.position.copy(targetPos);
+            } else {
+                if (isHandDetected) {
+                    isHandDetected = false;
+                    updateUxHint(true);
+                    debugMesh.visible = false;
+                }
+            }
+        }
+
+        function resizeVideoPlane() {
+            if (!video || !camera) return;
+            const distance = camera.position.z - videoPlane.position.z;
+            const vFOV = THREE.MathUtils.degToRad(camera.fov);
+            const height = 2 * Math.tan(vFOV / 2) * distance;
+            const width = height * camera.aspect;
+            const videoAspect = video.videoWidth / video.videoHeight || 1.33;
+            const screenAspect = width / height;
+            if (screenAspect > videoAspect) {
+                videoPlane.scale.set(-width, width / videoAspect, 1);
+            } else {
+                videoPlane.scale.set(-(height * videoAspect), height, 1);
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+            resizeVideoPlane();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const targetStrength = isHandDetected ? SETTINGS.bloomStrength : 0;
+
+            if (bloomPass) {
+                bloomPass.strength = THREE.MathUtils.lerp(bloomPass.strength, targetStrength, 0.05);
+            }
+
+            if (isHandDetected) {
+                currentPos.lerp(targetPos, 0.3);
+                sparklerSystem.emit(currentPos);
+            }
+
+            sparklerSystem.update();
+            composer.render();
+        }
+
+        init();
+    </script>
+</body>
+</html>
